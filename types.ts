@@ -102,7 +102,7 @@ export interface Notification {
   senderName: string;
   message: string;
   timestamp: string;
-  type: 'case' | 'attendance' | 'alert' | 'logout';
+  type: 'case' | 'attendance' | 'alert' | 'logout' | 'message';
 }
 
 export interface Hospital {

@@ -5,6 +5,7 @@ import {
   MapPin, 
   LogOut, 
   CheckCircle, 
+  Bell,
   ShieldAlert, 
   AlertTriangle, 
   PhoneCall, 
@@ -46,8 +47,14 @@ const TaskCheckIn: React.FC<TaskCheckInProps> = ({ user, onTaskLogin, onLogout }
   const [manualState, setManualState] = useState(user.state);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [pendingAttendance, setPendingAttendance] = useState<Attendance | null>(null);
+  const [toast, setToast] = useState<{ message: string, type: 'success' | 'info' } | null>(null);
   
   const navigate = useNavigate();
+
+  const showToast = (message: string, type: 'success' | 'info' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   const fetchPrograms = async (forceCloud = false) => {
     if (forceCloud) setIsSyncing(true);
@@ -171,11 +178,13 @@ const TaskCheckIn: React.FC<TaskCheckInProps> = ({ user, onTaskLogin, onLogout }
       }]);
 
       onTaskLogin(pendingAttendance);
-      navigate('/');
+      showToast("Check-in Berjaya! Memulakan Sesi...", "success");
+      setTimeout(() => navigate('/'), 1500);
     } catch (err) {
       console.error("Cloud Sync Failed:", err);
       onTaskLogin(pendingAttendance);
-      navigate('/');
+      showToast("Check-in Berjaya (Offline Mode)", "info");
+      setTimeout(() => navigate('/'), 1500);
     } finally {
       setIsSubmitting(false);
     }
@@ -183,6 +192,14 @@ const TaskCheckIn: React.FC<TaskCheckInProps> = ({ user, onTaskLogin, onLogout }
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-inter">
+      {toast && (
+        <div className="fixed top-10 left-1/2 -translate-x-1/2 z-[200] animate-in slide-in-from-top-10 fade-in duration-300 w-[90%] max-w-sm text-center">
+          <div className={`px-5 py-4 rounded-2xl shadow-2xl flex items-center justify-center gap-3 border ${toast.type === 'success' ? 'bg-green-600 border-green-500' : 'bg-slate-800 border-slate-700'} text-white`}>
+            {toast.type === 'success' ? <CheckCircle className="w-5 h-5" /> : <Bell className="w-5 h-5" />}
+            <p className="font-bold text-xs">{toast.message}</p>
+          </div>
+        </div>
+      )}
       <header className="bg-red-600 text-white p-6 shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2"></div>
         

@@ -18,7 +18,8 @@ import {
   Zap,
   MapPin,
   UserPlus,
-  CheckCircle2
+  CheckCircle2,
+  Bell
 } from 'lucide-react';
 import { db } from '../services/databaseService';
 import { googleSheetService } from '../services/googleSheetService';
@@ -38,6 +39,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
   const [autofillDetected, setAutofillDetected] = useState(false);
+  const [toast, setToast] = useState<{ message: string, type: 'success' | 'info' } | null>(null);
   
   // ID Verification States
   const [isVerifying, setIsVerifying] = useState(false);
@@ -47,8 +49,19 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
 
   const navigate = useNavigate();
 
+  const showToast = (message: string, type: 'success' | 'info' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
   useEffect(() => {
     handleCheckConnection();
+    
+    // Check for logout success
+    if (localStorage.getItem('resq_logout_success') === 'true') {
+      showToast("Log Keluar Berjaya! Sesi Ditamatkan.", "success");
+      localStorage.removeItem('resq_logout_success');
+    }
     
     // AUTOFILL DETECTION: Check if a user just registered
     const lastId = localStorage.getItem('resq_last_registered_id');
@@ -184,6 +197,14 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
 
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 relative overflow-hidden font-inter">
+      {toast && (
+        <div className="fixed top-10 left-1/2 -translate-x-1/2 z-[200] animate-in slide-in-from-top-10 fade-in duration-300 w-[90%] max-w-sm text-center">
+          <div className={`px-5 py-4 rounded-2xl shadow-2xl flex items-center justify-center gap-3 border ${toast.type === 'success' ? 'bg-green-600 border-green-500' : 'bg-slate-800 border-slate-700'} text-white`}>
+            {toast.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <Bell className="w-5 h-5" />}
+            <p className="font-bold text-xs">{toast.message}</p>
+          </div>
+        </div>
+      )}
       <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-red-600/10 rounded-full blur-[100px]"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-indigo-900/10 rounded-full blur-[100px]"></div>
       

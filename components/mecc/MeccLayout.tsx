@@ -27,6 +27,7 @@ import {
   Navigation,
   Loader2,
   Menu,
+  MessageSquare,
   Briefcase,
   ExternalLink,
   Edit3,
@@ -37,6 +38,7 @@ import {
 import { db } from '../../services/databaseService';
 import ProgramManagement from './ProgramManagement';
 import SettingsTab from './SettingsTab';
+import CoordinatorDashboard from './CoordinatorDashboard';
 import NearbyReferrals from '../responder/NearbyReferrals';
 import { googleSheetService } from '../../services/googleSheetService';
 import { formatMyDate } from '../../App';
@@ -50,9 +52,10 @@ const MeccLayout: React.FC<MeccLayoutProps> = ({ user, onLogout }) => {
   const [activeTab, setActiveTab] = useState('main');
   const [activeProgram, setActiveProgram] = useState<Program | null>(null);
   const [cases, setCases] = useState<Case[]>([]);
+  const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
-  const [toast, setToast] = useState<{ message: string, type: 'case' | 'attendance' | 'logout' | 'info' } | null>(null);
+  const [toast, setToast] = useState<{ message: string, type: 'case' | 'attendance' | 'logout' | 'message' | 'info' } | null>(null);
   const [sessionLogs, setSessionLogs] = useState<any[]>([]);
   
   // Status States
@@ -93,14 +96,16 @@ const MeccLayout: React.FC<MeccLayoutProps> = ({ user, onLogout }) => {
       
       if (active) {
         setActiveProgram(active);
-        const [progCases, progNotifs] = await Promise.all([
+        const [progCases, progNotifs, progAttendance] = await Promise.all([
           db.getCases(active.id),
-          db.getNotifications(active.id)
+          db.getNotifications(active.id),
+          db.getAttendance(active.id)
         ]);
         // Sort cases by timestamp descending to show latest first
         const sortedCases = [...progCases].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
         setCases(sortedCases);
         setNotifications(progNotifs);
+        setAttendance(progAttendance);
 
         if (progNotifs.length > 0) {
           const latest = progNotifs[0];
@@ -162,16 +167,22 @@ const MeccLayout: React.FC<MeccLayoutProps> = ({ user, onLogout }) => {
           <div className={`p-6 rounded-[2.5rem] shadow-2xl border flex items-start gap-4 ${
             toast.type === 'case' ? 'bg-red-600 border-red-500 text-white' :
             toast.type === 'attendance' ? 'bg-indigo-600 border-indigo-500 text-white' :
-            toast.type === 'logout' ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+            toast.type === 'logout' ? 'bg-slate-900 border-slate-800 text-white' : 
+            toast.type === 'message' ? 'bg-amber-500 border-amber-400 text-white' :
+            'bg-white border-slate-200 text-slate-900'
           }`}>
             <div className="shrink-0 p-3 bg-white/20 rounded-2xl shadow-inner">
               {toast.type === 'case' ? <FilePlus className="w-6 h-6" /> : 
                toast.type === 'attendance' ? <UserCheck className="w-6 h-6" /> : 
-               toast.type === 'logout' ? <UserX className="w-6 h-6" /> : <Bell className="w-6 h-6" />}
+               toast.type === 'logout' ? <UserX className="w-6 h-6" /> : 
+               toast.type === 'message' ? <MessageSquare className="w-6 h-6" /> :
+               <Bell className="w-6 h-6" />}
             </div>
             <div className="flex-1">
               <p className="font-black text-[9px] uppercase tracking-widest opacity-70 mb-1">
-                {toast.type === 'case' ? 'Kecemasan Baru' : 'Status Petugas'}
+                {toast.type === 'case' ? 'Kecemasan Baru' : 
+                 toast.type === 'message' ? 'Mesej Responder' :
+                 'Status Petugas'}
               </p>
               <p className="font-bold text-sm leading-tight">{toast.message}</p>
             </div>
@@ -283,80 +294,11 @@ const MeccLayout: React.FC<MeccLayoutProps> = ({ user, onLogout }) => {
                       <button onClick={() => setShowReferralModal(true)} className="px-8 py-5 bg-indigo-600 text-white rounded-3xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all">Pusat Rujukan AI</button>
                     </div>
 
-                    {/* SENARAI KES TERKINI - MOVED HERE PER USER REQUEST */}
-                    <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
-                      <div className="flex justify-between items-center px-4">
-                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Senarai Kes Terkini</h4>
-                        <button 
-                          onClick={() => setActiveTab('cases')}
-                          className="text-[9px] font-black text-red-600 uppercase tracking-widest hover:bg-red-50 px-4 py-2 rounded-xl transition-all flex items-center gap-1"
-                        >
-                          Lihat Semua <ChevronRight className="w-3 h-3" />
-                        </button>
-                      </div>
-                      
-                      <div className="grid grid-cols-1 gap-4">
-                        {cases.length === 0 ? (
-                          <div className="bg-white p-16 rounded-[3rem] border border-dashed border-slate-200 text-center">
-                            <Briefcase className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tiada rekod kes dikesan dalam pangkalan data</p>
-                          </div>
-                        ) : (
-                          cases.slice(0, 5).map(c => (
-                            <div key={c.id} className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 flex items-center justify-between group hover:shadow-xl hover:border-red-100 transition-all duration-300">
-                              <div className="flex items-center gap-5">
-                                <div className={`w-14 h-14 rounded-[1.5rem] flex items-center justify-center font-black text-white shadow-lg transform group-hover:rotate-6 transition-transform ${
-                                  c.status === 'Stabil' ? 'bg-green-500 shadow-green-100' : 
-                                  c.status === 'Rujuk' ? 'bg-red-500 shadow-red-100' : 
-                                  'bg-amber-500 shadow-amber-100'
-                                }`}>
-                                  {c.patientName[0]?.toUpperCase() || '?'}
-                                </div>
-                                <div className="space-y-1">
-                                  <div className="flex items-center gap-3">
-                                    <p className="font-black text-slate-900 uppercase text-sm tracking-tight">{c.patientName}</p>
-                                    <span className="text-[8px] font-black text-slate-400 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-lg font-mono">#{c.id}</span>
-                                  </div>
-                                  <p className="text-[10px] font-bold text-slate-500 italic flex items-center gap-2">
-                                    <MessageCircle className="w-3 h-3 text-slate-300" /> "{c.complaint}"
-                                  </p>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-6">
-                                 <div className="text-right hidden sm:block">
-                                    <p className="text-[10px] font-black text-slate-900 leading-none mb-1">@{c.checkpoint}</p>
-                                    <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{new Date(c.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                                 </div>
-                                 <div className="flex items-center gap-3">
-                                   <span className={`px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-colors ${
-                                      c.status === 'Stabil' ? 'bg-green-50 text-green-700 border-green-200' : 
-                                      c.status === 'Rujuk' ? 'bg-red-50 text-red-700 border-red-200' : 
-                                      'bg-amber-50 text-amber-700 border-amber-200'
-                                    }`}>
-                                      {c.status}
-                                   </span>
-                                   <button onClick={() => setActiveTab('cases')} className="p-2 bg-slate-50 text-slate-300 rounded-full hover:bg-red-600 hover:text-white transition-all shadow-sm">
-                                      <ChevronRight className="w-5 h-5" />
-                                   </button>
-                                 </div>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-
-                    {/* DASHBOARD STATS */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                       <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 hover:shadow-lg transition-all">
-                          <p className="text-4xl font-black text-slate-900">{cases.length}</p>
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Kes Direkod Hari Ini</p>
-                       </div>
-                       <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 hover:shadow-lg transition-all">
-                          <p className="text-4xl font-black text-indigo-600">{notifications.filter(n => n.type === 'attendance').length}</p>
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Responder Berdaftar Tugas</p>
-                       </div>
-                    </div>
+                    <CoordinatorDashboard 
+                      activeProgram={activeProgram}
+                      cases={cases}
+                      attendance={attendance}
+                    />
                   </>
                 ) : (
                   <div className="py-48 text-center flex flex-col items-center">

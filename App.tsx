@@ -183,6 +183,7 @@ function AppContent() {
     } finally {
       clearAllResQData();
       localStorage.removeItem('resq_session_start');
+      localStorage.setItem('resq_logout_success', 'true');
       setUser(null);
       setActiveTask(null);
       setIsLoading(false);

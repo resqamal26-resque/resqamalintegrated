@@ -6,15 +6,17 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "lint": "tsc --noEmit",
     "preview": "vite preview"
   },
   "dependencies": {
-    "react": "^19.2.4",
-    "react-router-dom": "^7.13.0",
-    "lucide-react": "^0.563.0",
-    "react-dom": "^19.2.4",
     "@google/genai": "^1.39.0",
-    "jspdf": "^2.5.1"
+    "jspdf": "^2.5.1",
+    "lucide-react": "^0.563.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.13.0",
+    "recharts": "^3.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

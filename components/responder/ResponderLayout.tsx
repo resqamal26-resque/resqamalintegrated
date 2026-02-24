@@ -24,6 +24,7 @@ import {
   Search,
   ChevronRight,
   ShieldCheck,
+  ShieldAlert,
   Truck,
   X,
   MessageSquare,
@@ -171,10 +172,28 @@ const ResponderLayout: React.FC<ResponderLayoutProps> = ({ user, onLogout, activ
     onLogout();
   };
 
-  const handleQuickMessageSend = (message: string) => {
+  const handleQuickMessageSend = async (message: string, internal = false) => {
     if (!selectedContactForMessage) return;
-    const url = `https://wa.me/${selectedContactForMessage.phone}?text=${encodeURIComponent(message)}`;
-    window.open(url, '_blank');
+    
+    if (internal) {
+      try {
+        const notification: Notification = {
+          id: `NOTIF_${Date.now()}`,
+          programId: activeTask.programId,
+          senderName: user.name,
+          message: `MESEJ KECEMASAN: ${message || 'Sila hubungi saya segera!'}`,
+          timestamp: new Date().toISOString(),
+          type: 'message'
+        };
+        await db.addNotification(notification);
+        showToast("Mesej Kecemasan dihantar ke MECC!", "success");
+      } catch (err) {
+        showToast("Gagal menghantar mesej dalaman.", "info");
+      }
+    } else {
+      const url = `https://wa.me/${selectedContactForMessage.phone}?text=${encodeURIComponent(message)}`;
+      window.open(url, '_blank');
+    }
     setSelectedContactForMessage(null);
   };
 
@@ -282,7 +301,7 @@ const ResponderLayout: React.FC<ResponderLayoutProps> = ({ user, onLogout, activ
 
         {activeTab === 'report' && (
           <div className="animate-in slide-in-from-bottom-6 duration-500">
-            <CaseReportForm user={user} activeTask={activeTask} onCaseAdded={fetchData} />
+            <CaseReportForm user={user} activeTask={activeTask} onCaseAdded={fetchData} showToast={showToast} />
           </div>
         )}
 
@@ -734,7 +753,7 @@ const ResponderLayout: React.FC<ResponderLayoutProps> = ({ user, onLogout, activ
                 {activeProgram?.quickMessages?.map((msg, idx) => (
                    <button 
                      key={idx}
-                     onClick={() => handleQuickMessageSend(msg)}
+                     onClick={() => handleQuickMessageSend(msg, false)}
                      className="w-full p-6 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between group hover:bg-indigo-600 hover:text-white transition-all"
                    >
                       <span className="font-bold text-sm text-left">"{msg}"</span>
@@ -743,11 +762,22 @@ const ResponderLayout: React.FC<ResponderLayoutProps> = ({ user, onLogout, activ
                 ))}
                 
                 <button 
-                  onClick={() => handleQuickMessageSend('')}
+                  onClick={() => handleQuickMessageSend('', false)}
                   className="w-full p-6 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-2xl flex items-center justify-between font-black uppercase text-[10px] tracking-widest hover:bg-indigo-600 hover:text-white transition-all"
                 >
-                   <span>Mesej Khas (Manual)</span>
+                   <span>Mesej Khas (WhatsApp)</span>
                    <Edit3 className="w-4 h-4" />
+                </button>
+
+                <button 
+                  onClick={() => handleQuickMessageSend('KECEMASAN: PERLUKAN BANTUAN SEGERA!', true)}
+                  className="w-full p-6 bg-red-600 text-white rounded-2xl flex items-center justify-between font-black uppercase text-[10px] tracking-widest hover:bg-red-700 transition-all shadow-lg"
+                >
+                   <div className="flex items-center gap-3">
+                      <ShieldAlert className="w-5 h-5 animate-pulse" />
+                      <span>Hantar Amaran ke MECC</span>
+                   </div>
+                   <Send className="w-4 h-4" />
                 </button>
              </div>
           </div>

@@ -10,10 +10,11 @@ interface CaseReportFormProps {
   user: User;
   activeTask: Attendance;
   onCaseAdded: () => void;
+  showToast: (message: string, type: 'success' | 'info') => void;
   initialData?: Case | null;
 }
 
-const CaseReportForm: React.FC<CaseReportFormProps> = ({ user, activeTask, onCaseAdded, initialData }) => {
+const CaseReportForm: React.FC<CaseReportFormProps> = ({ user, activeTask, onCaseAdded, showToast, initialData }) => {
   const [patientName, setPatientName] = useState(initialData?.patientName || '');
   const [age, setAge] = useState(initialData?.age || '');
   const [gender, setGender] = useState(initialData?.gender || 'Lelaki');
@@ -171,6 +172,7 @@ _Dihantar melalui resQ Amal System_
     
     setLastSavedCase(finalCaseData);
     setIsSubmitting(false);
+    showToast(initialData ? "Laporan dikemaskini!" : "Laporan berjaya dihantar!", "success");
   };
 
   if (lastSavedCase) {
