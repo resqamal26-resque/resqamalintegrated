@@ -1,0 +1,7 @@
+{
+  "name": "resQ Amal dup",
+  "description": "A comprehensive emergency response management system for volunteer responders and coordinators (MECC), integrating Google Sheets as a backend and Gemini AI for hospital referrals.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
