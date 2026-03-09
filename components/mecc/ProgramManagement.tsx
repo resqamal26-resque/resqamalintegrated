@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { Program, User, CheckpointDetail, AmbulanceDetail } from '../../types';
+import { Program, User, CheckpointDetail, AmbulanceDetail, UserRole } from '../../types';
 import { db } from '../../services/databaseService';
 import { googleSheetService } from '../../services/googleSheetService';
+import { MALAYSIAN_STATES } from '../../constants';
 import { 
   Calendar, 
   MapPin, 
@@ -49,6 +50,7 @@ const ProgramManagement: React.FC<ProgramManagementProps> = ({ user }) => {
   const [progDate, setProgDate] = useState('');
   const [progTime, setProgTime] = useState('');
   const [progLoc, setProgLoc] = useState('');
+  const [progState, setProgState] = useState(user.state === 'Global' ? 'Selangor' : user.state);
 
   useEffect(() => {
     fetchPrograms();
@@ -56,7 +58,9 @@ const ProgramManagement: React.FC<ProgramManagementProps> = ({ user }) => {
 
   const fetchPrograms = async () => {
     const all = await db.getPrograms();
-    const filtered = all.filter(p => p.state === user.state || p.state === 'CENTER');
+    const filtered = user.role === UserRole.MECC_HQ 
+      ? all 
+      : all.filter(p => p.state === user.state || p.state === 'CENTER');
     setPrograms(filtered);
     
     // Initial sync status check - assume synced if from local db for now, 
@@ -92,7 +96,7 @@ const ProgramManagement: React.FC<ProgramManagementProps> = ({ user }) => {
     
     const id = `PROG_${Date.now().toString().slice(-6)}`;
     const formattedDate = formatMyDate(progDate);
-    const targetState = user.state;
+    const targetState = user.role === UserRole.MECC_HQ ? progState : user.state;
 
     const newProgram: Program = {
       id,
@@ -420,10 +424,22 @@ const ProgramManagement: React.FC<ProgramManagementProps> = ({ user }) => {
                <div className="grid grid-cols-1 gap-6">
                   <div>
                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-1">Aras Program</label>
-                    <div className="flex items-center gap-3 px-6 py-4 bg-white border border-slate-100 rounded-2xl">
-                       <MapPin className="w-4 h-4 text-red-600" />
-                       <span className="text-[10px] font-black uppercase tracking-widest text-slate-700">Program Aras Negeri ({user.state})</span>
-                    </div>
+                    {user.role === UserRole.MECC_HQ ? (
+                      <select 
+                        value={progState} 
+                        onChange={(e) => setProgState(e.target.value)} 
+                        className="w-full px-6 py-4 bg-white border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:ring-4 focus:ring-red-500/10"
+                      >
+                        {MALAYSIAN_STATES.map(s => (
+                          <option key={s.abbr} value={s.name}>{s.name.toUpperCase()}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="flex items-center gap-3 px-6 py-4 bg-white border border-slate-100 rounded-2xl">
+                        <MapPin className="w-4 h-4 text-red-600" />
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-700">Program Aras Negeri ({user.state})</span>
+                      </div>
+                    )}
                   </div>
                   <input type="text" value={progName} onChange={(e) => setProgName(e.target.value)} className="w-full px-6 py-5 rounded-[1.5rem] border bg-white font-bold" placeholder="Nama Acara" required />
                   <div className="grid grid-cols-2 gap-4">

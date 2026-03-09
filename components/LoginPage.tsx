@@ -106,6 +106,23 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     }
   };
 
+  const handleDemoSuperAdminLogin = async () => {
+    setIsVerifying(true);
+    try {
+      await db.seedDemoData(); // Ensure users exist
+      const localUsers = await db.getUsers();
+      const saUser = localUsers.find(u => u.id === 'SA_GLOBAL_001');
+      if (saUser) {
+        onLogin(saUser);
+        navigate('/');
+      }
+    } catch (err) {
+      setError('Gagal log masuk demo.');
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -188,6 +205,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
   const roles = [
     { value: UserRole.RESPONDER, label: 'Responder', icon: <UserCircle className="w-5 h-5" /> },
     { value: UserRole.MECC, label: 'MECC Admin', icon: <ShieldCheck className="w-5 h-5" /> },
+    { value: UserRole.MECC_HQ, label: 'MECC HQ', icon: <Globe className="w-5 h-5" /> },
     { value: UserRole.AJK, label: 'AJK Program', icon: <Users className="w-5 h-5" /> },
     { value: UserRole.PIC, label: 'PIC Checkpoint', icon: <ShieldAlertIcon className="w-5 h-5" /> },
     { value: UserRole.SUPERADMIN, label: 'Super Admin', icon: <Crown className="w-5 h-5" /> },
@@ -228,6 +246,15 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
             <span className="text-[8px] font-black uppercase tracking-[0.2em]">🚀 Simulasi Pahang</span>
           </button>
         </div>
+
+        <button 
+          onClick={handleDemoSuperAdminLogin}
+          disabled={isVerifying}
+          className="w-full bg-slate-950 hover:bg-slate-900 border border-white/10 text-white py-4 rounded-3xl flex items-center justify-center gap-3 transition-all group shadow-2xl"
+        >
+          {isVerifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Crown className="w-5 h-5 text-amber-400" />}
+          <span className="text-[10px] font-black uppercase tracking-[0.3em]">Demo SuperAdmin Access</span>
+        </button>
 
         <div className="bg-white rounded-[3rem] shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-700 border border-white/5">
           <div className={`py-12 px-8 text-center relative overflow-hidden transition-all duration-500 ${selectedRole === UserRole.SUPERADMIN ? 'bg-slate-950' : 'bg-red-600'}`}>

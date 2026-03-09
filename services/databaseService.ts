@@ -144,6 +144,7 @@ class DatabaseService {
 
     const demoUsers: User[] = [
       { id: 'SA_GLOBAL_001', name: 'Ahmad Root', role: UserRole.SUPERADMIN, state: 'Global', password: 'password', createdAt: new Date().toISOString(), phone: '0123456789' },
+      { id: 'MECCHQ', name: 'MECC HQ Admin', role: UserRole.MECC_HQ, state: 'Global', password: '123', createdAt: new Date().toISOString(), phone: '0123456789' },
       { id: 'MECC_SEL_001', name: 'Siti Admin', role: UserRole.MECC, state: 'Selangor', password: 'password', createdAt: new Date().toISOString(), phone: '0111222333' },
       { id: 'MECC_PHG_001', name: 'Zul Admin Pahang', role: UserRole.MECC, state: 'Pahang', password: 'password', createdAt: new Date().toISOString(), phone: '0139988776' },
       { id: 'RES_SEL_999', name: 'Ali Responder', role: UserRole.RESPONDER, state: 'Selangor', createdAt: new Date().toISOString(), phone: '0198877665' },

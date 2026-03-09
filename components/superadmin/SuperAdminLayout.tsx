@@ -62,6 +62,7 @@ const SuperAdminLayout: React.FC<SuperAdminLayoutProps> = ({ user, onLogout }) =
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSyncingProfile, setIsSyncingProfile] = useState(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   
   // Detail View State
   const [selectedItem, setSelectedItem] = useState<{ type: string; data: any } | null>(null);
@@ -103,6 +104,32 @@ const SuperAdminLayout: React.FC<SuperAdminLayoutProps> = ({ user, onLogout }) =
       console.error("SuperAdmin Fetch Error:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleUpdateProgramStatus = async (program: Program, newStatus: 'Active' | 'Inactive' | 'Completed') => {
+    setIsUpdatingStatus(true);
+    const updatedProgram = { ...program, status: newStatus };
+    try {
+      // 1. Update Local DB
+      await db.updateProgram(updatedProgram);
+      
+      // 2. Sync to Master Sheet
+      await googleSheetService.syncData(undefined, [{
+        type: 'programs',
+        payload: updatedProgram
+      }]);
+      
+      // 3. Update Local State
+      setPrograms(prev => prev.map(p => p.id === program.id ? updatedProgram : p));
+      setSelectedItem({ type: 'Program', data: updatedProgram });
+      
+      alert(`Status program [${program.id}] telah dikemaskini ke ${newStatus}.`);
+    } catch (err) {
+      console.error("Update Status Error:", err);
+      alert("Gagal mengemaskini status program.");
+    } finally {
+      setIsUpdatingStatus(false);
     }
   };
 
@@ -209,11 +236,27 @@ const SuperAdminLayout: React.FC<SuperAdminLayoutProps> = ({ user, onLogout }) =
           {isCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
         </button>
 
-        <div className={`p-8 mb-4 flex items-center transition-all ${isCollapsed ? 'justify-center' : 'justify-start gap-4'}`}>
-           <div className={`p-3 bg-indigo-600 rounded-2xl shadow-xl shadow-indigo-900/40 transition-transform ${isCollapsed ? 'scale-110' : ''}`}>
-              <ShieldCheck className="w-6 h-6 text-white" />
+        <div className={`p-8 mb-4 flex flex-col transition-all ${isCollapsed ? 'items-center' : 'items-start'}`}>
+           <div className="flex items-center gap-4">
+              <div className={`p-3 bg-indigo-600 rounded-2xl shadow-xl shadow-indigo-900/40 transition-transform ${isCollapsed ? 'scale-110' : ''}`}>
+                 <ShieldCheck className="w-6 h-6 text-white" />
+              </div>
+              {!isCollapsed && (
+                <div className="animate-in fade-in duration-500 overflow-hidden">
+                  <h1 className="text-2xl font-black text-white tracking-tighter uppercase italic leading-none whitespace-nowrap">resQ HQ</h1>
+                  <p className="text-indigo-400 text-[8px] font-black uppercase tracking-[0.3em] mt-1 whitespace-nowrap">SuperAdmin Access</p>
+                </div>
+              )}
            </div>
-           {!isCollapsed && <div className="animate-in fade-in duration-500 overflow-hidden"><h1 className="text-2xl font-black text-white tracking-tighter uppercase italic leading-none whitespace-nowrap">resQ HQ</h1><p className="text-indigo-400 text-[8px] font-black uppercase tracking-[0.3em] mt-1 whitespace-nowrap">SuperAdmin Access</p></div>}
+           
+           {/* Demo Back Link */}
+           <button 
+             onClick={onLogout}
+             className={`mt-6 flex items-center gap-3 text-slate-500 hover:text-white transition-all group ${isCollapsed ? 'justify-center' : ''}`}
+           >
+             <ArrowLeftCircle className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
+             {!isCollapsed && <span className="text-[10px] font-black uppercase tracking-widest">Kembali ke Login</span>}
+           </button>
         </div>
 
         <nav className="flex-1 px-4 space-y-2 overflow-y-auto custom-scrollbar">
@@ -468,6 +511,27 @@ const SuperAdminLayout: React.FC<SuperAdminLayoutProps> = ({ user, onLogout }) =
               </div>
               <div className="p-10 overflow-y-auto custom-scrollbar flex-1 bg-slate-50">
                  <div className="bg-white rounded-[2rem] p-8 border border-slate-200 shadow-sm space-y-6">
+                    {selectedItem.type === 'Program' && (
+                      <div className="p-6 bg-indigo-50 rounded-2xl border border-indigo-100 mb-4">
+                        <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-3">Kemaskini Status Program</p>
+                        <div className="flex gap-2">
+                          {(['Active', 'Inactive', 'Completed'] as const).map(status => (
+                            <button
+                              key={status}
+                              disabled={isUpdatingStatus}
+                              onClick={() => handleUpdateProgramStatus(selectedItem.data, status)}
+                              className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border-2 ${
+                                selectedItem.data.status === status 
+                                  ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' 
+                                  : 'bg-white border-slate-100 text-slate-400 hover:border-indigo-200'
+                              }`}
+                            >
+                              {isUpdatingStatus && selectedItem.data.status !== status ? <Loader2 className="w-3 h-3 animate-spin mx-auto" /> : status}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     {Object.entries(selectedItem.data).map(([key, value]) => {
                       if (typeof value === 'object') return null; // Skip complex objects for simple display
                       return (

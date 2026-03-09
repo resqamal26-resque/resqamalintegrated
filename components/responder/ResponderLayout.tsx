@@ -59,6 +59,7 @@ interface ResponderLayoutProps {
 const ResponderLayout: React.FC<ResponderLayoutProps> = ({ user, onLogout, activeTask }) => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [cases, setCases] = useState<Case[]>([]);
+  const [attendanceHistory, setAttendanceHistory] = useState<Attendance[]>([]);
   const [activeProgram, setActiveProgram] = useState<Program | null>(null);
   const [meccAdmin, setMeccAdmin] = useState<User | null>(null);
   const [connStatus, setConnStatus] = useState<'online' | 'offline' | 'checking'>('checking');
@@ -66,6 +67,8 @@ const ResponderLayout: React.FC<ResponderLayoutProps> = ({ user, onLogout, activ
   const [directorySearch, setDirectorySearch] = useState('');
   const [showDirectoryModal, setShowDirectoryModal] = useState(false);
   const [showEndDutyModal, setShowEndDutyModal] = useState(false);
+  const [showFinalReport, setShowFinalReport] = useState(false);
+  const [finalExitTime, setFinalExitTime] = useState('');
   const [showGuideModal, setShowGuideModal] = useState(false);
   const [guideTab, setGuideTab] = useState<'vitals' | 'gcs' | 'bmi' | 'dxt'>('vitals');
   const [isEndingDuty, setIsEndingDuty] = useState(false);
@@ -93,6 +96,10 @@ const ResponderLayout: React.FC<ResponderLayoutProps> = ({ user, onLogout, activ
     const allCases = await db.getCases(activeTask.programId);
     const sessionCases = allCases.filter(c => c.responderName === user.name && c.programId === activeTask.programId);
     setCases(sessionCases);
+
+    const allAttendance = await db.getAttendance();
+    const userAttendance = allAttendance.filter(a => a.responderName === user.name).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    setAttendanceHistory(userAttendance);
 
     const programs = await db.getPrograms();
     const prog = programs.find(p => p.id === activeTask.programId);
@@ -167,8 +174,39 @@ const ResponderLayout: React.FC<ResponderLayoutProps> = ({ user, onLogout, activ
   }, [currentTime]);
 
   const confirmEndDuty = async () => {
-    setIsEndingDuty(true);
-    // onLogout logic in App.tsx automatically captures the exit time and syncs it.
+    const now = new Date();
+    let hours = now.getHours();
+    const minutes = now.getMinutes().toString().padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    const dateStr = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()}`;
+    const timeStr = `${hours.toString().padStart(2, '0')}:${minutes} ${ampm}`;
+    
+    setFinalExitTime(`${dateStr} ${timeStr}`);
+    setShowEndDutyModal(false);
+    setShowFinalReport(true);
+  };
+
+  const shareTaskReportToWhatsApp = () => {
+    const message = `*LAPORAN TAMAT TUGAS resQ AMAL*
+--------------------------------
+*Program:* ${activeTask.programName || 'Program Am'}
+*Tarikh:* ${activeTask.programDate || '-'}
+*Checkpoint:* ${activeTask.checkpoint}
+*Petugas:* ${user.name}
+--------------------------------
+*Masa Masuk:* ${activeTask.entryTime}
+*Masa Keluar:* ${finalExitTime}
+*Bil. Kes Dilapor:* ${cases.length === 0 ? 'TIADA KES DILAPORKAN' : `${cases.length} Kes`}
+--------------------------------
+_Dihantar melalui Sistem resQ Amal_`;
+
+    const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank');
+  };
+
+  const handleFinalLogout = () => {
     onLogout();
   };
 
@@ -226,7 +264,9 @@ const ResponderLayout: React.FC<ResponderLayoutProps> = ({ user, onLogout, activ
         <div className="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex flex-col">
             <h1 className="font-black text-lg tracking-tighter uppercase italic leading-none mb-0.5">resQ Field</h1>
-            <p className="text-[9px] font-black opacity-80 uppercase tracking-widest">{activeTask.checkpoint}</p>
+            <p className="text-[9px] font-black opacity-80 uppercase tracking-widest">
+              {activeTask.checkpoint} {activeTask.area ? `• ${activeTask.area}` : ''}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <button 
@@ -254,7 +294,9 @@ const ResponderLayout: React.FC<ResponderLayoutProps> = ({ user, onLogout, activ
               </div>
               <div className="bg-indigo-50 p-5 rounded-3xl border border-indigo-100">
                 <p className="text-sm font-black text-indigo-900 truncate mb-1">{user.name}</p>
-                <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">{user.id}</p>
+                <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">
+                  {activeTask.area || 'KAWASAN AM'} • {activeTask.task || 'TUGASAN AM'}
+                </p>
               </div>
             </div>
 
@@ -308,6 +350,59 @@ const ResponderLayout: React.FC<ResponderLayoutProps> = ({ user, onLogout, activ
         {activeTab === 'referral' && (
           <div className="animate-in fade-in duration-500">
             <NearbyReferrals />
+          </div>
+        )}
+
+        {activeTab === 'attendance' && (
+          <div className="space-y-6 animate-in fade-in duration-500">
+            <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
+              <h3 className="text-xl font-black uppercase tracking-tighter italic flex items-center gap-3">
+                <ClipboardList className="w-6 h-6 text-red-600" /> Sejarah Kehadiran
+              </h3>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">Rekod Laporan Kehadiran Anda</p>
+            </div>
+
+            <div className="space-y-4">
+              {attendanceHistory.length === 0 ? (
+                <div className="bg-white p-12 rounded-[2.5rem] text-center border border-slate-100">
+                  <AlertTriangle className="w-12 h-12 text-slate-200 mx-auto mb-4" />
+                  <p className="text-slate-400 font-black uppercase text-[10px] tracking-widest">Tiada rekod kehadiran ditemui</p>
+                </div>
+              ) : (
+                attendanceHistory.map(a => (
+                  <div key={a.id} className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col gap-4">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="text-xs font-black text-slate-800 uppercase leading-none mb-1">{a.programName || 'Program Am'}</p>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{a.checkpoint} • {a.area || 'KAWASAN AM'}</p>
+                      </div>
+                      <span className={`px-2.5 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${
+                        a.status === 'Verified' ? 'bg-emerald-100 text-emerald-700' : 
+                        a.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                      }`}>
+                        {a.status || 'Pending'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-50">
+                      <div>
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Masa Masuk</p>
+                        <p className="text-[10px] font-bold text-slate-700">{a.entryTime}</p>
+                      </div>
+                      <div>
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Dijangka Keluar</p>
+                        <p className="text-[10px] font-bold text-slate-700">{a.expectedExitTime || '-'}</p>
+                      </div>
+                    </div>
+                    {a.remark && (
+                      <div className="bg-slate-50 p-3 rounded-xl">
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Catatan / Remark</p>
+                        <p className="text-[10px] font-bold text-slate-600 italic leading-tight">{a.remark}</p>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         )}
 
@@ -531,7 +626,7 @@ const ResponderLayout: React.FC<ResponderLayoutProps> = ({ user, onLogout, activ
       {/* END DUTY CONFIRMATION MODAL */}
       {showEndDutyModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md" onClick={() => !isEndingDuty && setShowEndDutyModal(false)}></div>
+          <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md" onClick={() => setShowEndDutyModal(false)}></div>
           <div className="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl relative z-10 overflow-hidden flex flex-col animate-in zoom-in-95 duration-300 border border-red-100">
              <div className="p-8 bg-red-600 text-white flex justify-between items-center shrink-0">
                 <div className="flex items-center gap-4">
@@ -541,9 +636,7 @@ const ResponderLayout: React.FC<ResponderLayoutProps> = ({ user, onLogout, activ
                       <p className="text-[9px] font-black text-red-100 uppercase tracking-widest mt-1">Sahkan Rekod Penutup Sesi</p>
                    </div>
                 </div>
-                {!isEndingDuty && (
-                  <button onClick={() => setShowEndDutyModal(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X className="w-6 h-6" /></button>
-                )}
+                <button onClick={() => setShowEndDutyModal(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X className="w-6 h-6" /></button>
              </div>
 
              <div className="p-10 space-y-8 bg-slate-50 overflow-y-auto custom-scrollbar max-h-[75vh]">
@@ -557,7 +650,9 @@ const ResponderLayout: React.FC<ResponderLayoutProps> = ({ user, onLogout, activ
                          <div className="flex-1">
                             <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Petugas Lapangan</p>
                             <p className="text-lg font-black text-slate-800 uppercase tracking-tight leading-none mb-1">{user.name}</p>
-                            <p className="text-[9px] font-bold text-indigo-500 uppercase">{activeTask.checkpoint} • {activeTask.programName}</p>
+                            <p className="text-[9px] font-bold text-indigo-500 uppercase">
+                              {activeTask.checkpoint} • {activeTask.area || 'KAWASAN AM'} • {activeTask.task || 'TUGASAN AM'}
+                            </p>
                          </div>
                       </div>
 
@@ -605,21 +700,80 @@ const ResponderLayout: React.FC<ResponderLayoutProps> = ({ user, onLogout, activ
                 <div className="space-y-4">
                    <button 
                     onClick={confirmEndDuty} 
-                    disabled={isEndingDuty}
                     className="w-full py-6 bg-red-600 text-white font-black text-xl uppercase tracking-tighter rounded-[2.5rem] shadow-2xl shadow-red-100 flex items-center justify-center gap-4 active:scale-95 transition-all group"
                    >
-                     {isEndingDuty ? <Loader2 className="w-7 h-7 animate-spin" /> : <Power className="w-7 h-7 group-hover:scale-110 transition-transform" />}
-                     {isEndingDuty ? "Mengemaskini Cloud..." : "Sahkan & Tamat Tugas"}
+                     <Power className="w-7 h-7 group-hover:scale-110 transition-transform" />
+                     Sahkan & Tamat Tugas
                    </button>
                    <button 
                     onClick={() => setShowEndDutyModal(false)}
-                    disabled={isEndingDuty}
                     className="w-full py-4 bg-white border border-slate-200 text-slate-400 font-black text-[10px] uppercase tracking-widest rounded-2xl hover:bg-slate-50 transition-all"
                    >
                      Kembali ke Dashboard
                    </button>
                 </div>
              </div>
+          </div>
+        </div>
+      )}
+
+      {/* FINAL TASK REPORT MODAL (POST-CONFIRMATION) */}
+      {showFinalReport && (
+        <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-950/95 backdrop-blur-xl"></div>
+          <div className="bg-white w-full max-w-md rounded-[3.5rem] shadow-2xl relative z-10 overflow-hidden flex flex-col animate-in zoom-in-95 duration-500 border border-emerald-100">
+            <div className="p-10 bg-emerald-600 text-white text-center relative">
+              <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-white/20 to-transparent"></div>
+              <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 relative z-10">
+                <CheckCircle className="w-10 h-10" />
+              </div>
+              <h2 className="text-3xl font-black uppercase italic tracking-tighter relative z-10">Tugas Selesai!</h2>
+              <p className="text-[10px] font-black text-emerald-100 uppercase tracking-[0.3em] mt-2 relative z-10">Laporan Tugas Lapangan</p>
+            </div>
+
+            <div className="p-10 space-y-8 bg-white">
+              <div className="space-y-4">
+                <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 space-y-4">
+                  <div className="flex justify-between items-center border-b border-slate-200 pb-3">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Program</p>
+                    <p className="text-xs font-black text-slate-800 uppercase text-right">{activeTask.programName}</p>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-slate-200 pb-3">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Checkpoint</p>
+                    <p className="text-xs font-black text-slate-800 uppercase text-right">{activeTask.checkpoint}</p>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-slate-200 pb-3">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Masa Tugas</p>
+                    <p className="text-xs font-black text-slate-800 text-right">{activeTask.entryTime.split(' ')[1]} - {finalExitTime.split(' ')[1]}</p>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Kes Dilapor</p>
+                    <p className={`text-lg font-black ${cases.length === 0 ? 'text-slate-400' : 'text-emerald-600'}`}>
+                      {cases.length === 0 ? 'TIADA KES DILAPORKAN' : `${cases.length} Kes`}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <button 
+                  onClick={shareTaskReportToWhatsApp}
+                  className="w-full py-6 bg-emerald-500 text-white font-black uppercase tracking-widest rounded-[2rem] shadow-xl shadow-emerald-100 flex items-center justify-center gap-4 active:scale-95 transition-all"
+                >
+                  <MessageCircle className="w-6 h-6" />
+                  Hantar ke WhatsApp
+                </button>
+                
+                <button 
+                  onClick={handleFinalLogout}
+                  disabled={isEndingDuty}
+                  className="w-full py-5 bg-slate-900 text-white font-black uppercase tracking-widest rounded-[2rem] flex items-center justify-center gap-4 active:scale-95 transition-all"
+                >
+                  {isEndingDuty ? <Loader2 className="w-5 h-5 animate-spin" /> : <LogOut className="w-5 h-5" />}
+                  Selesai & Keluar
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -792,6 +946,10 @@ const ResponderLayout: React.FC<ResponderLayoutProps> = ({ user, onLogout, activ
         <button onClick={() => setActiveTab('referral')} className={`flex flex-col items-center gap-1 p-2 transition-all ${activeTab === 'referral' ? 'text-red-600 scale-110' : 'text-slate-400'}`}>
           <Hospital className="w-6 h-6" />
           <span className="text-[8px] font-black uppercase tracking-widest">Maps</span>
+        </button>
+        <button onClick={() => setActiveTab('attendance')} className={`flex flex-col items-center gap-1 p-2 transition-all ${activeTab === 'attendance' ? 'text-red-600 scale-110' : 'text-slate-400'}`}>
+          <ClipboardList className="w-6 h-6" />
+          <span className="text-[8px] font-black uppercase tracking-widest">Hadir</span>
         </button>
         <button onClick={() => setActiveTab('report')} className={`flex flex-col items-center gap-1 p-5 -mt-16 bg-red-600 rounded-full text-white shadow-2xl border-[8px] border-white transition-all active:scale-90`}>
           <FilePlus className="w-8 h-8" />

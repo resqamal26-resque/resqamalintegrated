@@ -14,11 +14,17 @@ import {
   RefreshCw, 
   Globe,
   Navigation,
+  Briefcase,
   Activity,
   Calendar,
   ChevronRight,
   ShieldCheck,
-  Zap
+  Zap,
+  ClipboardList,
+  Send,
+  Clock,
+  Power,
+  MessageCircle
 } from 'lucide-react';
 import { db } from '../../services/databaseService';
 import { googleSheetService } from '../../services/googleSheetService';
@@ -43,10 +49,25 @@ const TaskCheckIn: React.FC<TaskCheckInProps> = ({ user, onTaskLogin, onLogout }
   const [programLevelMode, setProgramLevelMode] = useState<'Negeri' | 'Pusat'>('Negeri');
   const [isManualMode, setIsManualMode] = useState(false);
   const [manualProgramName, setManualProgramName] = useState('');
+  const [manualLocation, setManualLocation] = useState('');
+  const [manualDate, setManualDate] = useState(new Date().toLocaleDateString('en-GB'));
   const [manualCheckpoint, setManualCheckpoint] = useState('');
+  const [manualTask, setManualTask] = useState('');
+  const [manualArea, setManualArea] = useState('');
   const [manualState, setManualState] = useState(user.state);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showSuccessPopup, setShowSuccessPopup] = useState(false);
+  const [showAttendanceForm, setShowAttendanceForm] = useState(false);
+  const [showSharePopup, setShowSharePopup] = useState(false);
+  const [submittedAttendance, setSubmittedAttendance] = useState<Attendance | null>(null);
   const [pendingAttendance, setPendingAttendance] = useState<Attendance | null>(null);
+  const [attendanceReport, setAttendanceReport] = useState({
+    entryTime: '',
+    expectedExitTime: '',
+    exitType: 'manual' as 'manual' | 'end',
+    remark: '',
+    note: ''
+  });
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'info' } | null>(null);
   
   const navigate = useNavigate();
@@ -116,6 +137,8 @@ const TaskCheckIn: React.FC<TaskCheckInProps> = ({ user, onTaskLogin, onLogout }
     const finalProgramId = isManualMode ? `MANUAL_${Date.now()}` : selectedProgramId;
     const finalProgramName = isManualMode ? manualProgramName : (program?.name || selectedProgramId);
     const finalCheckpoint = isManualMode ? manualCheckpoint : selectedCheckpoint;
+    const finalTask = isManualMode ? manualTask : 'TUGASAN AM';
+    const finalArea = isManualMode ? manualArea : 'KAWASAN AM';
     const finalState = isManualMode ? manualState : (program?.state || user.state);
     
     const finalLocation = location || { lat: 0, lng: 0 };
@@ -126,14 +149,25 @@ const TaskCheckIn: React.FC<TaskCheckInProps> = ({ user, onTaskLogin, onLogout }
       id: `ATT_${Date.now()}`,
       programId: finalProgramId,
       programName: finalProgramName,
+      programLocation: isManualMode ? manualLocation : (program?.location || 'LOKASI AM'),
+      programDate: isManualMode ? manualDate : (program?.date || new Date().toLocaleDateString('en-GB')),
       state: finalState,
       responderId: user.id,
       responderName: user.name,
       checkpoint: finalCheckpoint,
+      task: finalTask,
+      area: finalArea,
       entryTime: entryTimeMY,
+      timestamp: entryTimeUTC,
       location: finalLocation,
-      remark: 'ACTIVE'
+      remark: 'ACTIVE',
+      status: 'Pending'
     };
+
+    setAttendanceReport(prev => ({
+      ...prev,
+      entryTime: entryTimeMY
+    }));
 
     setPendingAttendance(attendance);
     setShowConfirmModal(true);
@@ -146,6 +180,31 @@ const TaskCheckIn: React.FC<TaskCheckInProps> = ({ user, onTaskLogin, onLogout }
     setShowConfirmModal(false);
 
     try {
+      // Play success sound
+      try {
+        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.1);
+        
+        setTimeout(() => {
+          const osc2 = audioCtx.createOscillator();
+          osc2.connect(gainNode);
+          osc2.type = 'sine';
+          osc2.frequency.setValueAtTime(1320, audioCtx.currentTime); // E6
+          osc2.start();
+          osc2.stop(audioCtx.currentTime + 0.1);
+        }, 150);
+      } catch (e) {
+        console.warn("Audio feedback failed", e);
+      }
+
       // 1. Save Locally
       await db.addAttendance(pendingAttendance);
 
@@ -178,16 +237,78 @@ const TaskCheckIn: React.FC<TaskCheckInProps> = ({ user, onTaskLogin, onLogout }
       }]);
 
       onTaskLogin(pendingAttendance);
-      showToast("Check-in Berjaya! Memulakan Sesi...", "success");
-      setTimeout(() => navigate('/'), 1500);
+      showToast("Check-in Berjaya!", "success");
+      setShowSuccessPopup(true);
     } catch (err) {
       console.error("Cloud Sync Failed:", err);
       onTaskLogin(pendingAttendance);
       showToast("Check-in Berjaya (Offline Mode)", "info");
-      setTimeout(() => navigate('/'), 1500);
+      setShowSuccessPopup(true);
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const submitAttendanceReport = async () => {
+    if (!pendingAttendance) return;
+    setIsSubmitting(true);
+
+    try {
+      const finalExpectedExit = attendanceReport.exitType === 'end' ? 'TAMAT PROGRAM' : attendanceReport.expectedExitTime;
+      const finalRemark = attendanceReport.remark + (attendanceReport.note ? ` (Nota: ${attendanceReport.note})` : '');
+      
+      const updatedAttendance: Attendance = {
+        ...pendingAttendance,
+        entryTime: attendanceReport.entryTime,
+        expectedExitTime: finalExpectedExit,
+        remark: finalRemark,
+        status: 'Pending'
+      };
+
+      await db.updateAttendance(updatedAttendance);
+      
+      // Update cloud if possible
+      googleSheetService.syncData(user.spreadsheetId, [{
+        type: 'attendance',
+        payload: {
+          id: updatedAttendance.id,
+          expectedExitTime: updatedAttendance.expectedExitTime,
+          remark: updatedAttendance.remark,
+          entryTime: updatedAttendance.entryTime
+        }
+      }]).catch(e => console.error("Cloud update failed", e));
+
+      setSubmittedAttendance(updatedAttendance);
+      setShowAttendanceForm(false);
+      setShowSharePopup(true);
+      showToast("Laporan Kehadiran Dihantar!", "success");
+    } catch (err) {
+      console.error("Failed to submit attendance report", err);
+      showToast("Gagal menghantar laporan", "info");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const shareToWhatsApp = () => {
+    if (!submittedAttendance) return;
+    
+    const message = `*LAPORAN KEHADIRAN resQ AMAL*
+--------------------------------
+*Nama:* ${submittedAttendance.responderName}
+*Program:* ${submittedAttendance.programName}
+*Tarikh:* ${submittedAttendance.programDate || new Date().toLocaleDateString('en-GB')}
+*Lokasi:* ${submittedAttendance.programLocation}
+*Checkpoint:* ${submittedAttendance.checkpoint}
+*Tugasan:* ${submittedAttendance.task || 'TUGASAN AM'}
+*Masa Masuk:* ${submittedAttendance.entryTime}
+*Jangkaan Keluar:* ${submittedAttendance.expectedExitTime || '-'}
+*Status:* ${submittedAttendance.remark || 'ACTIVE'}
+--------------------------------
+_Dihantar melalui Sistem resQ Amal_`;
+
+    const encodedMessage = encodeURIComponent(message);
+    window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
   };
 
   return (
@@ -304,8 +425,38 @@ const TaskCheckIn: React.FC<TaskCheckInProps> = ({ user, onTaskLogin, onLogout }
                       />
                     </div>
                   </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="relative">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">Lokasi Program</label>
+                      <div className="relative">
+                        <MapPin className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300" />
+                        <input 
+                          type="text" 
+                          value={manualLocation} 
+                          onChange={(e) => setManualLocation(e.target.value)}
+                          placeholder="Cth: Dataran"
+                          className="w-full pl-14 pr-6 py-4 rounded-2xl border border-slate-100 bg-slate-50 font-bold text-sm outline-none focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 transition-all"
+                          required
+                        />
+                      </div>
+                    </div>
+                    <div className="relative">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">Tarikh Program</label>
+                      <div className="relative">
+                        <Calendar className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300" />
+                        <input 
+                          type="text" 
+                          value={manualDate} 
+                          onChange={(e) => setManualDate(e.target.value)}
+                          placeholder="DD/MM/YYYY"
+                          className="w-full pl-14 pr-6 py-4 rounded-2xl border border-slate-100 bg-slate-50 font-bold text-sm outline-none focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 transition-all"
+                          required
+                        />
+                      </div>
+                    </div>
+                  </div>
                   <div className="relative">
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">Lokasi / Checkpoint</label>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">Stesen / Checkpoint</label>
                     <div className="relative">
                       <MapPin className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300" />
                       <input 
@@ -313,6 +464,34 @@ const TaskCheckIn: React.FC<TaskCheckInProps> = ({ user, onTaskLogin, onLogout }
                         value={manualCheckpoint} 
                         onChange={(e) => setManualCheckpoint(e.target.value)}
                         placeholder="Cth: Water Station 3"
+                        className="w-full pl-14 pr-6 py-4 rounded-2xl border border-slate-100 bg-slate-50 font-bold text-sm outline-none focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 transition-all"
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div className="relative">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">Tugasan (Task)</label>
+                    <div className="relative">
+                      <Briefcase className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300" />
+                      <input 
+                        type="text" 
+                        value={manualTask} 
+                        onChange={(e) => setManualTask(e.target.value)}
+                        placeholder="Cth: Medic Leader"
+                        className="w-full pl-14 pr-6 py-4 rounded-2xl border border-slate-100 bg-slate-50 font-bold text-sm outline-none focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 transition-all"
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div className="relative">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-2">Kawasan (Area)</label>
+                    <div className="relative">
+                      <Navigation className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300" />
+                      <input 
+                        type="text" 
+                        value={manualArea} 
+                        onChange={(e) => setManualArea(e.target.value)}
+                        placeholder="Cth: Sektor A"
                         className="w-full pl-14 pr-6 py-4 rounded-2xl border border-slate-100 bg-slate-50 font-bold text-sm outline-none focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 transition-all"
                         required
                       />
@@ -336,9 +515,9 @@ const TaskCheckIn: React.FC<TaskCheckInProps> = ({ user, onTaskLogin, onLogout }
 
                <button
                   type="submit"
-                  disabled={!manualProgramName || !manualCheckpoint || isSubmitting}
+                  disabled={!manualProgramName || !manualCheckpoint || !manualTask || !manualArea || !manualLocation || !manualDate || isSubmitting}
                   className={`w-full py-6 rounded-[2.5rem] text-white font-black text-xl shadow-2xl flex items-center justify-center gap-4 transition-all transform active:scale-95 ${
-                    manualProgramName && manualCheckpoint 
+                    manualProgramName && manualCheckpoint && manualTask && manualArea && manualLocation && manualDate
                       ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-200' 
                       : 'bg-slate-200 cursor-not-allowed text-slate-400'
                   }`}
@@ -365,12 +544,20 @@ const TaskCheckIn: React.FC<TaskCheckInProps> = ({ user, onTaskLogin, onLogout }
                     : `MECC ${user.state} belum mengaktifkan program negeri.`}
                 </p>
               </div>
-              <button 
-                onClick={() => fetchPrograms(true)} 
-                className="w-full py-5 bg-slate-900 text-white font-black text-[10px] uppercase tracking-[0.2em] rounded-3xl shadow-xl flex items-center justify-center gap-3"
-              >
-                <RefreshCw className="w-4 h-4" /> Cuba Semak Semula
-              </button>
+              <div className="grid grid-cols-1 gap-3">
+                <button 
+                  onClick={() => fetchPrograms(true)} 
+                  className="w-full py-5 bg-slate-900 text-white font-black text-[10px] uppercase tracking-[0.2em] rounded-3xl shadow-xl flex items-center justify-center gap-3"
+                >
+                  <RefreshCw className="w-4 h-4" /> Cuba Semak Semula
+                </button>
+                <button 
+                  onClick={() => setIsManualMode(true)} 
+                  className="w-full py-5 bg-amber-500 text-white font-black text-[10px] uppercase tracking-[0.2em] rounded-3xl shadow-xl flex items-center justify-center gap-3"
+                >
+                  <Zap className="w-4 h-4" /> Gunakan Input Manual
+                </button>
+              </div>
             </div>
           ) : (
             <form onSubmit={handleCheckIn} className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
@@ -492,6 +679,24 @@ const TaskCheckIn: React.FC<TaskCheckInProps> = ({ user, onTaskLogin, onLogout }
                   </div>
                   <div className="flex items-start gap-4">
                     <div className="p-2 bg-slate-100 rounded-xl text-slate-400">
+                      <Briefcase className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Tugasan</p>
+                      <p className="font-bold text-slate-800">{pendingAttendance.task}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-4">
+                    <div className="p-2 bg-slate-100 rounded-xl text-slate-400">
+                      <Navigation className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Kawasan</p>
+                      <p className="font-bold text-slate-800">{pendingAttendance.area}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-4">
+                    <div className="p-2 bg-slate-100 rounded-xl text-slate-400">
                       <Globe className="w-4 h-4" />
                     </div>
                     <div>
@@ -515,6 +720,205 @@ const TaskCheckIn: React.FC<TaskCheckInProps> = ({ user, onTaskLogin, onLogout }
                     <CheckCircle className="w-4 h-4" /> Sahkan
                   </button>
                </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success Popup */}
+      {showSuccessPopup && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/80 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 p-8 text-center space-y-6">
+            <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
+              <CheckCircle className="w-10 h-10" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tighter italic">Check-in Berjaya!</h2>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Sila lapor kehadiran anda sekarang.</p>
+            </div>
+            <div className="space-y-3">
+              <button 
+                onClick={() => { setShowAttendanceForm(true); setShowSuccessPopup(false); }}
+                className="w-full py-5 bg-red-600 text-white font-black uppercase text-xs tracking-widest rounded-2xl shadow-xl shadow-red-100 hover:bg-red-700 transition-all flex items-center justify-center gap-3"
+              >
+                <ClipboardList className="w-5 h-5" /> Lapor Kehadiran
+              </button>
+              <button 
+                onClick={() => navigate('/')}
+                className="w-full py-4 bg-slate-100 text-slate-500 font-black uppercase text-[10px] tracking-widest rounded-2xl hover:bg-slate-200 transition-all"
+              >
+                Terus ke Dashboard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Attendance Form Modal */}
+      {showAttendanceForm && pendingAttendance && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-md animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl relative z-10 overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-300 border border-red-100">
+            <div className="p-8 bg-red-600 text-white flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-white/20 rounded-2xl shadow-inner"><ClipboardList className="w-7 h-7" /></div>
+                <div>
+                  <h3 className="text-2xl font-black uppercase tracking-tighter italic leading-none">Laporan Kehadiran</h3>
+                  <p className="text-[9px] font-black text-red-100 uppercase tracking-widest mt-1">Sesi Bertugas Unit Medik</p>
+                </div>
+              </div>
+              <button onClick={() => navigate('/')} className="p-2 hover:bg-white/10 rounded-full transition-colors"><LogOut className="w-6 h-6" /></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-8 space-y-8 bg-slate-50 custom-scrollbar">
+              {/* Auto-Captured Info (Read Only) */}
+              <div className="grid grid-cols-1 gap-4">
+                <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm space-y-4">
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><ShieldCheck className="w-3 h-3 text-red-500" /> Maklumat Automatik</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Nama Petugas</p>
+                      <p className="text-xs font-black text-slate-800 uppercase">{user.name}</p>
+                    </div>
+                    <div>
+                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Kawasan</p>
+                      <p className="text-xs font-black text-slate-800 uppercase">{pendingAttendance.area}</p>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Nama Program</p>
+                      <p className="text-xs font-black text-slate-800 uppercase">{pendingAttendance.programName}</p>
+                    </div>
+                    <div>
+                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Lokasi Program</p>
+                      <p className="text-xs font-black text-slate-800 uppercase">{pendingAttendance.programLocation}</p>
+                    </div>
+                    <div>
+                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Tarikh Program</p>
+                      <p className="text-xs font-black text-slate-800 uppercase">{pendingAttendance.programDate}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Editable Fields */}
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 flex items-center gap-2"><Clock className="w-3 h-3" /> Masa Lapor Diri</label>
+                    <input 
+                      type="text" 
+                      value={attendanceReport.entryTime} 
+                      onChange={(e) => setAttendanceReport(prev => ({ ...prev, entryTime: e.target.value }))}
+                      className="w-full px-6 py-4 rounded-2xl border border-slate-100 bg-white font-bold text-sm outline-none focus:ring-4 focus:ring-red-500/10"
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 flex items-center gap-2"><Power className="w-3 h-3" /> Masa Dijangka Keluar</label>
+                    <div className="flex gap-2 p-1.5 bg-slate-200 rounded-2xl">
+                      <button 
+                        onClick={() => setAttendanceReport(prev => ({ ...prev, exitType: 'manual' }))}
+                        className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${attendanceReport.exitType === 'manual' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500'}`}
+                      >
+                        Input Masa
+                      </button>
+                      <button 
+                        onClick={() => setAttendanceReport(prev => ({ ...prev, exitType: 'end' }))}
+                        className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${attendanceReport.exitType === 'end' ? 'bg-red-600 text-white shadow-sm' : 'text-slate-500'}`}
+                      >
+                        Tamat Program
+                      </button>
+                    </div>
+                    {attendanceReport.exitType === 'manual' && (
+                      <input 
+                        type="time" 
+                        value={attendanceReport.expectedExitTime} 
+                        onChange={(e) => setAttendanceReport(prev => ({ ...prev, expectedExitTime: e.target.value }))}
+                        className="w-full px-6 py-4 rounded-2xl border border-slate-100 bg-white font-bold text-sm outline-none focus:ring-4 focus:ring-red-500/10 animate-in slide-in-from-top-2 duration-300"
+                        required
+                      />
+                    )}
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between px-2">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><AlertTriangle className="w-3 h-3" /> Balik Awal?</label>
+                      <select 
+                        value={attendanceReport.remark}
+                        onChange={(e) => setAttendanceReport(prev => ({ ...prev, remark: e.target.value }))}
+                        className="bg-slate-200 px-4 py-2 rounded-xl text-[9px] font-black uppercase outline-none"
+                      >
+                        <option value="ACTIVE">TIDAK</option>
+                        <option value="BALIK AWAL">YA (BALIK AWAL)</option>
+                      </select>
+                    </div>
+                    
+                    {attendanceReport.remark === 'BALIK AWAL' && (
+                      <div className="space-y-2 animate-in slide-in-from-top-2 duration-300">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Alasan Balik Awal (Nota)</label>
+                        <textarea 
+                          value={attendanceReport.note}
+                          onChange={(e) => setAttendanceReport(prev => ({ ...prev, note: e.target.value }))}
+                          placeholder="Sila nyatakan alasan anda..."
+                          className="w-full px-6 py-4 rounded-2xl border border-slate-100 bg-white font-bold text-sm outline-none focus:ring-4 focus:ring-red-500/10 min-h-[100px]"
+                          required
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-8 bg-white border-t border-slate-100 shrink-0">
+              <button 
+                onClick={submitAttendanceReport}
+                disabled={isSubmitting || (attendanceReport.remark === 'BALIK AWAL' && !attendanceReport.note) || (attendanceReport.exitType === 'manual' && !attendanceReport.expectedExitTime)}
+                className="w-full py-6 bg-red-600 text-white font-black uppercase tracking-widest rounded-[2rem] shadow-2xl shadow-red-100 flex items-center justify-center gap-4 active:scale-95 transition-all disabled:opacity-50"
+              >
+                {isSubmitting ? <Loader2 className="w-6 h-6 animate-spin" /> : <Send className="w-6 h-6" />}
+                Hantar Laporan Kehadiran
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* WhatsApp Share Success Popup */}
+      {showSharePopup && submittedAttendance && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-6">
+          <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm animate-in fade-in duration-300"></div>
+          <div className="bg-white w-full max-w-sm rounded-[3rem] shadow-2xl relative z-10 overflow-hidden animate-in zoom-in-95 duration-300">
+            <div className="bg-emerald-600 p-8 text-center text-white">
+              <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <CheckCircle className="w-10 h-10" />
+              </div>
+              <h3 className="text-2xl font-black uppercase tracking-tighter italic">Berjaya!</h3>
+              <p className="text-[10px] font-black text-emerald-100 uppercase tracking-widest mt-1">Laporan Telah Direkodkan</p>
+            </div>
+            
+            <div className="p-8 space-y-6">
+              <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 space-y-3">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Ringkasan Laporan</p>
+                <div className="space-y-1">
+                  <p className="text-xs font-black text-slate-800 uppercase text-center">{submittedAttendance.responderName}</p>
+                  <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest text-center">{submittedAttendance.programName}</p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <button 
+                  onClick={shareToWhatsApp}
+                  className="w-full py-5 bg-emerald-500 text-white font-black uppercase tracking-widest rounded-2xl shadow-lg shadow-emerald-100 flex items-center justify-center gap-3 active:scale-95 transition-all"
+                >
+                  <MessageCircle className="w-5 h-5" />
+                  Kongsi ke WhatsApp
+                </button>
+                
+                <button 
+                  onClick={() => navigate('/')}
+                  className="w-full py-5 bg-slate-100 text-slate-600 font-black uppercase tracking-widest rounded-2xl flex items-center justify-center gap-3 active:scale-95 transition-all"
+                >
+                  Tutup & Kembali
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -22,6 +22,7 @@ import {
 import { db } from '../../services/databaseService';
 import { googleSheetService } from '../../services/googleSheetService';
 import { Program, User, UserRole, Notification } from '../../types';
+import { MALAYSIAN_STATES } from '../../constants';
 import { formatMyDate } from '../../App';
 
 interface SettingsTabProps {
@@ -29,7 +30,7 @@ interface SettingsTabProps {
 }
 
 const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
-  if (user.role !== UserRole.MECC) {
+  if (user.role !== UserRole.MECC && user.role !== UserRole.MECC_HQ) {
     return (
       <div className="flex flex-col items-center justify-center py-20 bg-white rounded-[3rem] border border-dashed border-red-200">
         <ShieldAlert className="w-20 h-20 text-red-600 mb-4 animate-bounce" />
@@ -44,6 +45,7 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
   const [progDate, setProgDate] = useState('');
   const [progTime, setProgTime] = useState('');
   const [progLoc, setProgLoc] = useState('');
+  const [progState, setProgState] = useState(user.state === 'Global' ? 'Selangor' : user.state);
   // Forced to 'Negeri' as per user request
   const [progLevel] = useState<'Negeri' | 'Pusat'>('Negeri');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -81,8 +83,8 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
   const handleTestNotification = async () => {
     setIsNotifying(true);
     const programs = await db.getPrograms();
-    // Check for active program in user's state OR central state
-    const active = programs.find(p => p.status === 'Active' && (p.state === user.state || p.state === 'CENTER'));
+    // Check for active program in user's state OR central state OR any if HQ
+    const active = programs.find(p => p.status === 'Active' && (p.state === user.state || p.state === 'CENTER' || user.role === UserRole.MECC_HQ));
     
     if (!active) {
       alert("Sila aktifkan program terlebih dahulu sebelum menguji notifikasi.");
@@ -138,8 +140,8 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
     
     const id = `PROG_${Date.now().toString().slice(-6)}`;
     const formattedDate = formatMyDate(progDate);
-    // targetState is always fixed to user.state for MECC
-    const targetState = user.state;
+    // targetState is always fixed to user.state for MECC, but selectable for MECC_HQ
+    const targetState = user.role === UserRole.MECC_HQ ? progState : user.state;
 
     const newProgram: Program = {
       id,
@@ -213,7 +215,7 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
                  <Plus className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter italic">Aktifkan Program Baru ({user.state})</h3>
+                <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter italic">Aktifkan Program Baru ({user.role === UserRole.MECC_HQ ? progState : user.state})</h3>
                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Penyelarasan Master & Personal Sheet Aktif</p>
               </div>
             </div>
@@ -221,11 +223,23 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ user }) => {
             <form onSubmit={handleAddProgram} className="grid grid-cols-1 md:grid-cols-2 gap-8 relative z-10">
               <div className="md:col-span-2 space-y-1">
                 <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Aras Program</label>
-                <div className="flex items-center gap-3 px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl">
-                   <MapPin className="w-4 h-4 text-red-600" />
-                   <span className="text-[10px] font-black uppercase tracking-widest text-slate-700">Program Aras Negeri ({user.state})</span>
-                   <span className="ml-auto text-[8px] font-bold text-slate-400 uppercase tracking-tighter">* Aras Pusat (HQ) tidak dibenarkan</span>
-                </div>
+                {user.role === UserRole.MECC_HQ ? (
+                  <select 
+                    value={progState} 
+                    onChange={(e) => setProgState(e.target.value)} 
+                    className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-sm outline-none focus:ring-4 focus:ring-red-500/10"
+                  >
+                    {MALAYSIAN_STATES.map((s: any) => (
+                      <option key={s.abbr} value={s.name}>{s.name.toUpperCase()}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="flex items-center gap-3 px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                    <MapPin className="w-4 h-4 text-red-600" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-700">Program Aras Negeri ({user.state})</span>
+                    <span className="ml-auto text-[8px] font-bold text-slate-400 uppercase tracking-tighter">* Aras Pusat (HQ) tidak dibenarkan</span>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1">

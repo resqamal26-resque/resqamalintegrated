@@ -2,6 +2,7 @@
 export enum UserRole {
   RESPONDER = 'Responder',
   MECC = 'MECC',
+  MECC_HQ = 'MECC HQ',
   AJK = 'AJK',
   PIC = 'PIC',
   SUPERADMIN = 'SuperAdmin'
@@ -83,12 +84,19 @@ export interface Attendance {
   id: string;
   programId: string;
   programName?: string;
+  programLocation?: string;
+  programDate?: string;
   state: string;
   responderId: string;
   responderName: string;
   checkpoint: string;
+  task?: string;
+  area?: string;
   entryTime: string;
+  timestamp: string;
   exitTime?: string;
+  expectedExitTime?: string;
+  status?: 'Pending' | 'Verified' | 'Rejected';
   location: {
     lat: number;
     lng: number;

@@ -20,6 +20,7 @@ import {
   MessageCircle,
   UserCheck,
   FilePlus,
+  Contact,
   AlertTriangle,
   UserX,
   Wifi,
@@ -33,12 +34,15 @@ import {
   Edit3,
   Share2,
   Globe,
-  ChevronRight
+  ChevronRight,
+  ClipboardList
 } from 'lucide-react';
 import { db } from '../../services/databaseService';
 import ProgramManagement from './ProgramManagement';
+import DirectoryManagement from './DirectoryManagement';
 import SettingsTab from './SettingsTab';
 import CoordinatorDashboard from './CoordinatorDashboard';
+import AttendanceList from './AttendanceList';
 import NearbyReferrals from '../responder/NearbyReferrals';
 import { googleSheetService } from '../../services/googleSheetService';
 import { formatMyDate } from '../../App';
@@ -57,6 +61,21 @@ const MeccLayout: React.FC<MeccLayoutProps> = ({ user, onLogout }) => {
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ message: string, type: 'case' | 'attendance' | 'logout' | 'message' | 'info' } | null>(null);
   const [sessionLogs, setSessionLogs] = useState<any[]>([]);
+  
+  const handleVerifyAttendance = async (att: Attendance, status: 'Verified' | 'Rejected') => {
+    try {
+      const updated = { ...att, status };
+      await db.updateAttendance(updated);
+      await googleSheetService.syncData(user.spreadsheetId, [{
+        type: 'attendance',
+        payload: updated
+      }]);
+      setAttendance(prev => prev.map(a => a.id === att.id ? updated : a));
+      showToast(`Kehadiran ${att.responderName} telah ${status === 'Verified' ? 'disahkan' : 'ditolak'}`, 'info');
+    } catch (error) {
+      showToast('Gagal mengemaskini status kehadiran', 'info');
+    }
+  };
   
   // Status States
   const [connStatus, setConnStatus] = useState<'online' | 'offline' | 'checking'>('checking');
@@ -92,33 +111,39 @@ const MeccLayout: React.FC<MeccLayoutProps> = ({ user, onLogout }) => {
     if (isInitial) setLoading(true);
     try {
       const programs = await db.getPrograms();
-      const active = programs.find(p => p.status === 'Active' && (p.state === user.state || p.state === 'CENTER'));
+      const active = programs.find(p => p.status === 'Active' && (p.state === user.state || p.state === 'CENTER' || user.role === UserRole.MECC_HQ));
       
-      if (active) {
-        setActiveProgram(active);
-        const [progCases, progNotifs, progAttendance] = await Promise.all([
-          db.getCases(active.id),
-          db.getNotifications(active.id),
-          db.getAttendance(active.id)
-        ]);
-        // Sort cases by timestamp descending to show latest first
-        const sortedCases = [...progCases].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-        setCases(sortedCases);
-        setNotifications(progNotifs);
-        setAttendance(progAttendance);
+      const [allCases, allNotifs, allAttendance] = await Promise.all([
+        db.getCases(),
+        db.getNotifications(),
+        db.getAttendance()
+      ]);
 
-        if (progNotifs.length > 0) {
-          const latest = progNotifs[0];
-          if (latest.id !== lastNotifId.current && !isInitial) {
-            showToast(latest.message, latest.type);
-            lastNotifId.current = latest.id;
-          } else if (isInitial) {
-            lastNotifId.current = latest.id;
-          }
+      if (user.role === UserRole.MECC_HQ) {
+        // HQ sees everything
+        setCases(allCases.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+        setNotifications(allNotifs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+        setAttendance(allAttendance.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+      } else if (active) {
+        setActiveProgram(active);
+        const progCases = allCases.filter(c => c.programId === active.id);
+        const progNotifs = allNotifs.filter(n => n.programId === active.id);
+        const progAttendance = allAttendance.filter(a => a.programId === active.id);
+
+        setCases(progCases.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+        setNotifications(progNotifs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+        setAttendance(progAttendance.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+      }
+
+      const latestNotifs = user.role === UserRole.MECC_HQ ? allNotifs : (active ? allNotifs.filter(n => n.programId === active.id) : []);
+      if (latestNotifs.length > 0) {
+        const latest = latestNotifs[0];
+        if (latest.id !== lastNotifId.current && !isInitial) {
+          showToast(latest.message, latest.type);
+          lastNotifId.current = latest.id;
+        } else if (isInitial) {
+          lastNotifId.current = latest.id;
         }
-      } else {
-        setActiveProgram(null);
-        setCases([]);
       }
       const logs = JSON.parse(localStorage.getItem('resq_session_logs') || '[]');
       setSessionLogs(logs);
@@ -154,7 +179,9 @@ const MeccLayout: React.FC<MeccLayoutProps> = ({ user, onLogout }) => {
   const navigationItems = useMemo(() => [
     { id: 'main', label: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
     { id: 'cases', label: 'Kes Kecemasan', icon: <Briefcase className="w-5 h-5" />, badge: cases.length },
+    { id: 'attendance', label: 'Kehadiran', icon: <ClipboardList className="w-5 h-5" />, badge: attendance.length },
     { id: 'notifications', label: 'Log Mesej', icon: <Bell className="w-5 h-5" />, badge: notifications.length },
+    { id: 'directory', label: 'Direktori', icon: <Contact className="w-5 h-5" /> },
     { id: 'programs', label: 'Program', icon: <MapPin className="w-5 h-5" /> },
     { id: 'security', label: 'Sesi Pentadbir', icon: <History className="w-5 h-5" />, adminOnly: true },
     { id: 'settings', label: 'Konfigurasi', icon: <Settings className="w-5 h-5" />, adminOnly: true }
@@ -202,7 +229,7 @@ const MeccLayout: React.FC<MeccLayoutProps> = ({ user, onLogout }) => {
           <p className="text-slate-500 text-[9px] font-black uppercase tracking-[0.4em] ml-1">{user.state} CONTROL CENTER</p>
         </div>
         <nav className="flex-1 px-4 space-y-2 overflow-y-auto custom-scrollbar">
-          {navigationItems.map(item => (!item.adminOnly || user.role === UserRole.MECC) && (
+          {navigationItems.map(item => (!item.adminOnly || user.role === UserRole.MECC || user.role === UserRole.MECC_HQ) && (
             <button 
               key={item.id} 
               onClick={() => {
@@ -291,7 +318,12 @@ const MeccLayout: React.FC<MeccLayoutProps> = ({ user, onLogout }) => {
                           <MapPin className="w-4 h-4 text-red-500" /> {activeProgram.location} • <Calendar className="w-4 h-4 text-blue-500" /> {activeProgram.date}
                         </p>
                       </div>
-                      <button onClick={() => setShowReferralModal(true)} className="px-8 py-5 bg-indigo-600 text-white rounded-3xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all">Pusat Rujukan AI</button>
+                      <div className="flex flex-wrap gap-3">
+                        <button onClick={() => setShowReferralModal(true)} className="px-8 py-5 bg-indigo-600 text-white rounded-3xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all">Pusat Rujukan AI</button>
+                        <button onClick={() => setActiveTab('directory')} className="px-8 py-5 bg-slate-900 text-white rounded-3xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all flex items-center gap-2">
+                          <Contact className="w-4 h-4 text-red-500" /> Urus Direktori
+                        </button>
+                      </div>
                     </div>
 
                     <CoordinatorDashboard 
@@ -409,6 +441,10 @@ const MeccLayout: React.FC<MeccLayoutProps> = ({ user, onLogout }) => {
                  )}
               </div>
             )}
+
+            {activeTab === 'attendance' && <AttendanceList attendance={attendance} user={user} onVerify={handleVerifyAttendance} />}
+
+            {activeTab === 'directory' && <DirectoryManagement user={user} activeProgram={activeProgram} />}
 
             {activeTab === 'programs' && <ProgramManagement user={user} />}
             {activeTab === 'security' && (
